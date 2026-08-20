@@ -35,12 +35,17 @@ jobs:
       - name: Build Caddy with modules
         run: |
           ~/go/bin/xcaddy build \
-            --output ./caddy-custom \
+            --output ./caddy-acid \
             --with github.com/caddy-dns/cloudflare \
             --with github.com/mholt/caddy-ratelimit
 
+      - name: Extract Caddy Version
+        run: |
+          REAL_VER=$(./caddy-acid version | awk '{print $1}')
+          echo "CADDY_VER=$REAL_VER" >> $GITHUB_ENV
+
       - name: Pack binary
-        run: tar -czvf caddy-linux-amd64.tar.gz caddy-custom
+        run: tar -czvf caddy-linux-amd64.tar.gz caddy-acid
 
       - name: Publish to GitHub Releases (latest)
         env:
@@ -53,8 +58,8 @@ jobs:
           git push origin :refs/tags/"${{ env.RELEASE_DATE }}" || true
 
           gh release create "${{ env.RELEASE_DATE }}" caddy-linux-amd64.tar.gz \
-            --title "Release ${{ env.RELEASE_DATE }}" \
-            --notes "Automatic build ${{ env.RELEASE_DATE }}" \
+            --title "Release ${{ env.RELEASE_DATE }} (${{ env.CADDY_VER }})" \
+            --notes "Automatic build ${{ env.RELEASE_DATE }} version ${{ env.CADDY_VER }}" \
             --target main
 
           # 2. Обновляем плавающий релиз 'latest'
@@ -63,6 +68,6 @@ jobs:
           git push origin :refs/tags/latest || true
 
           gh release create latest caddy-linux-amd64.tar.gz \
-            --title "Latest Build (${{ env.RELEASE_DATE }})" \
-            --notes "Actual build ${{ env.RELEASE_DATE }}" \
+            --title "Latest Build ${{ env.RELEASE_DATE }} (${{ env.CADDY_VER }})" \
+            --notes "Latest build ${{ env.RELEASE_DATE }} version ${{ env.CADDY_VER }}" \
             --target main
