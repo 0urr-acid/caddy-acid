@@ -1,12 +1,13 @@
 name: Build Caddy Binary
 
 on:
+  schedule:
+    - cron: '0 12 * * *'
   push:
     branches: [ main ]
   workflow_dispatch:
 
 env:
-  CADDY_VERSION: "v2.8.4"
   GOOS: "linux"
   GOARCH: "amd64"
 
@@ -20,6 +21,9 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Set current date env
+        run: echo "RELEASE_DATE=$(date +'%Y-%m-%d')" >> $GITHUB_ENV
+
       - name: Setup Go environment
         uses: actions/setup-go@v5
         with:
@@ -30,7 +34,7 @@ jobs:
 
       - name: Build Caddy with modules
         run: |
-          ~/go/bin/xcaddy build ${{ env.CADDY_VERSION }} \
+          ~/go/bin/xcaddy build \
             --output ./caddy-custom \
             --with github.com/caddy-dns/cloudflare \
             --with github.com/mholt/caddy-ratelimit
@@ -42,13 +46,23 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # Удаляем прошлый релиз 'latest', если он существовал
+          # 1. Создаем постоянный релиз с тегом даты
+          # Очищаем старый тег текущего дня, если workflow запускается повторно вручную
+          gh release delete "${{ env.RELEASE_DATE }}" --yes || true
+          git tag -d "${{ env.RELEASE_DATE }}" || true
+          git push origin :refs/tags/"${{ env.RELEASE_DATE }}" || true
+
+          gh release create "${{ env.RELEASE_DATE }}" caddy-linux-amd64.tar.gz \
+            --title "Release ${{ env.RELEASE_DATE }}" \
+            --notes "Automatic build ${{ env.RELEASE_DATE }}" \
+            --target main
+
+          # 2. Обновляем плавающий релиз 'latest'
           gh release delete latest --yes || true
           git tag -d latest || true
           git push origin :refs/tags/latest || true
 
-          # Создаем новый релиз с прикрепленным архивом
           gh release create latest caddy-linux-amd64.tar.gz \
-            --title "Caddy Custom Build" \
-            --notes "Сборка Caddy ${{ env.CADDY_VERSION }} от $(date -u +'%Y-%m-%d %H:%M UTC')" \
+            --title "Latest Build (${{ env.RELEASE_DATE }})" \
+            --notes "Actual build ${{ env.RELEASE_DATE }}" \
             --target main
