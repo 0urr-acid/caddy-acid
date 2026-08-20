@@ -1,0 +1,54 @@
+name: Build Caddy Binary
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+env:
+  CADDY_VERSION: "v2.8.4"
+  GOOS: "linux"
+  GOARCH: "amd64"
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Go environment
+        uses: actions/setup-go@v5
+        with:
+          go-version: 'stable'
+
+      - name: Install xcaddy
+        run: go install github.com/caddyserver/xcaddy/cmd/xcaddy@latest
+
+      - name: Build Caddy with modules
+        run: |
+          ~/go/bin/xcaddy build ${{ env.CADDY_VERSION }} \
+            --output ./caddy-custom \
+            --with github.com/caddy-dns/cloudflare \
+            --with github.com/mholt/caddy-ratelimit
+
+      - name: Pack binary
+        run: tar -czvf caddy-linux-amd64.tar.gz caddy-custom
+
+      - name: Publish to GitHub Releases (latest)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Удаляем прошлый релиз 'latest', если он существовал
+          gh release delete latest --yes || true
+          git tag -d latest || true
+          git push origin :refs/tags/latest || true
+
+          # Создаем новый релиз с прикрепленным архивом
+          gh release create latest caddy-linux-amd64.tar.gz \
+            --title "Caddy Custom Build" \
+            --notes "Сборка Caddy ${{ env.CADDY_VERSION }} от $(date -u +'%Y-%m-%d %H:%M UTC')" \
+            --target main
