@@ -167,6 +167,8 @@ jobs:
               rm -rf /var/lib/caddy /var/log/caddy /etc/caddy
           fi
           EOF
+          chmod 755 deb-root/DEBIAN/postrm
+
 
           cat <<EOF > deb-root/DEBIAN/prerm
           #!/bin/sh
@@ -176,6 +178,7 @@ jobs:
               deb-systemd-invoke stop caddy.service >/dev/null || true
           fi
           EOF
+          chmod 755 deb-root/DEBIAN/prerm
           
           (cd deb-root && find . -type f ! -path './DEBIAN/*' -exec md5sum {} + | sed 's|^\./||' > DEBIAN/md5sums)
           chmod 644 deb-root/DEBIAN/md5sums
