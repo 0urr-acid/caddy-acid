@@ -41,33 +41,130 @@ jobs:
 
       - name: Extract Caddy Version
         run: |
-          REAL_VER=$(./caddy-acid version | awk '{print $1}')
-          echo "CADDY_VER=$REAL_VER" >> $GITHUB_ENV
+          CADDY_VER=$(./caddy-acid version | awk '{print $1}')
+          DEB_VER=$(echo "$CADDY_VER" | sed 's/^v//')
+          echo "CADDY_VER=$CADDY_VER" >> $GITHUB_ENV
+          echo "DEB_VER=$DEB_VER" >> $GITHUB_ENV
 
-      - name: Pack binary
-        run: tar -czvf caddy-linux-amd64.tar.gz caddy-acid
+      - name: Build Debian (.deb) Package
+        run: |
+          mkdir -p deb-root/DEBIAN
+          mkdir -p deb-root/usr/bin
+          mkdir -p deb-root/etc/caddy
+          mkdir -p deb-root/lib/systemd/system
+          mkdir -p deb-root/usr/share/bash-completion/completions
+          mkdir -p deb-root/var/lib/caddy
+          mkdir -p deb-root/var/www/html
+
+          cp ./caddy-acid deb-root/usr/bin/caddy-acid
+          chmod 755 deb-root/usr/bin/caddy-acid
+
+          cp ./Caddyfile deb-root/etc/caddy/Caddyfile
+          cp ./caddy.service deb-root/lib/systemd/system/caddy.service
+          cp ./index.html deb-root/var/www/html/index.html
+
+          ./caddy-acid completion bash > deb-root/usr/share/bash-completion/completions/caddy
+
+          echo "/etc/caddy/Caddyfile" > deb-root/DEBIAN/conffiles
+          echo "/var/www/html/index.html" > deb-root/DEBIAN/conffiles
+
+          cat << 'EOF' > deb-root/DEBIAN/postinst
+          #!/bin/sh
+          set -e
+          
+          if [ "$1" = "configure" ]; then
+              # Add user and group
+              if ! getent group caddy >/dev/null; then
+                  groupadd --system caddy
+              fi
+              if ! getent passwd caddy >/dev/null; then
+                  useradd --system \
+                      --gid caddy \
+                      --create-home \
+                      --home-dir /var/lib/caddy \
+                      --shell /usr/sbin/nologin \
+                      --comment "Caddy web server" \
+                      caddy
+              fi
+              if getent group www-data >/dev/null; then
+                  usermod -aG www-data caddy
+              fi
+          
+                  # handle cases where package was installed and then purged;
+                  # user and group will still exist but with no home dir
+                  if [ ! -d /var/lib/caddy ]; then
+                          mkdir -p /var/lib/caddy
+                          chown caddy:caddy /var/lib/caddy
+                  fi
+          
+              # Add log directory with correct permissions
+              if [ ! -d /var/log/caddy ]; then
+                  mkdir -p /var/log/caddy
+                  chown caddy:caddy /var/log/caddy
+              fi
+          fi
+          
+          if [ "$1" = "configure" ] || [ "$1" = "abort-upgrade" ] || [ "$1" = "abort-deconfigure" ] || [ "$1" = "abort-remove" ] ; then
+              # This will only remove masks created by d-s-h on package removal.
+              deb-systemd-helper unmask caddy.service >/dev/null || true
+          
+              # was-enabled defaults to true, so new installations run enable.
+              if deb-systemd-helper --quiet was-enabled caddy.service; then
+                  # Enables the unit on first installation, creates new
+                  # symlinks on upgrades if the unit file has changed.
+                  deb-systemd-helper enable caddy.service >/dev/null || true
+                  deb-systemd-invoke start caddy.service >/dev/null || true
+              else
+                  # Update the statefile to add new symlinks (if any), which need to be
+                  # cleaned up on purge. Also remove old symlinks.
+                  deb-systemd-helper update-state caddy.service >/dev/null || true
+              fi
+          
+              # Restart only if it was already started
+              if [ -d /run/systemd/system ]; then
+                  systemctl --system daemon-reload >/dev/null || true
+                  if [ -n "$2" ]; then
+                      deb-systemd-invoke try-restart caddy.service >/dev/null || true
+                  fi
+              fi
+          fi
+          EOF
+          chmod 755 deb-root/DEBIAN/postinst
+
+          # 6. Генерируем файл метаданных DEBIAN/control
+          cat <<EOF > deb-root/DEBIAN/control
+          Package: caddy-acid
+          Version: ${{ env.DEB_VER }}~${{ env.RELEASE_DATE }}
+          Architecture: amd64
+          Maintainer: 0urr-acid
+          Depends: bash-completion, passwd
+          Section: net
+          Priority: optional
+          Description: Caddy build
+          EOF
+
+          # 7. Собираем .deb файл
+          dpkg-deb --build deb-root "caddy-acid_${{ env.DEB_VER }}~${{ env.RELEASE_DATE }}_amd64.deb"
+          cp "caddy-acid_${{ env.DEB_VER }}~${{ env.RELEASE_DATE }}_amd64.deb" caddy-acid-latest.deb
 
       - name: Publish to GitHub Releases (latest)
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # 1. Создаем постоянный релиз с тегом даты
-          # Очищаем старый тег текущего дня, если workflow запускается повторно вручную
           gh release delete "${{ env.RELEASE_DATE }}" --yes || true
           git tag -d "${{ env.RELEASE_DATE }}" || true
           git push origin :refs/tags/"${{ env.RELEASE_DATE }}" || true
 
-          gh release create "${{ env.RELEASE_DATE }}" caddy-linux-amd64.tar.gz \
+          gh release create "${{ env.RELEASE_DATE }}" "caddy-acid_${{ env.DEB_VER }}~${{ env.RELEASE_DATE }}_amd64.deb" \
             --title "Release ${{ env.RELEASE_DATE }} (${{ env.CADDY_VER }})" \
             --notes "Automatic build ${{ env.RELEASE_DATE }} version ${{ env.CADDY_VER }}" \
             --target main
 
-          # 2. Обновляем плавающий релиз 'latest'
           gh release delete latest --yes || true
           git tag -d latest || true
           git push origin :refs/tags/latest || true
 
-          gh release create latest caddy-linux-amd64.tar.gz \
+          gh release create latest caddy-acid-latest.deb \
             --title "Latest Build ${{ env.RELEASE_DATE }} (${{ env.CADDY_VER }})" \
             --notes "Latest build ${{ env.RELEASE_DATE }} version ${{ env.CADDY_VER }}" \
             --target main
