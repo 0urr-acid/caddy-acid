@@ -66,7 +66,7 @@ jobs:
           ./caddy-acid completion bash > deb-root/usr/share/bash-completion/completions/caddy
 
           echo "/etc/caddy/Caddyfile" > deb-root/DEBIAN/conffiles
-          echo "/var/www/html/index.html" > deb-root/DEBIAN/conffiles
+          echo "/var/www/html/index.html" >> deb-root/DEBIAN/conffiles
 
           cat << 'EOF' > deb-root/DEBIAN/postinst
           #!/bin/sh
@@ -131,7 +131,6 @@ jobs:
           EOF
           chmod 755 deb-root/DEBIAN/postinst
 
-          # 6. Генерируем файл метаданных DEBIAN/control
           cat <<EOF > deb-root/DEBIAN/control
           Package: caddy-acid
           Version: ${{ env.DEB_VER }}~${{ env.RELEASE_DATE }}
@@ -143,7 +142,44 @@ jobs:
           Description: Caddy build
           EOF
 
-          # 7. Собираем .deb файл
+          cat <<EOF > deb-root/DEBIAN/postrm
+          #!/bin/sh
+          set -e
+          
+          if [ -d /run/systemd/system ]; then
+              systemctl --system daemon-reload >/dev/null || true
+          fi
+          
+          if [ "$1" = "remove" ]; then
+              if [ -x "/usr/bin/deb-systemd-helper" ]; then
+                  deb-systemd-helper mask caddy.service >/dev/null || true
+              fi
+          fi
+          
+          if [ "$1" = "purge" ]; then
+              if [ -x "/usr/bin/deb-systemd-helper" ]; then
+                  deb-systemd-helper purge caddy.service >/dev/null || true
+                  deb-systemd-helper unmask caddy.service >/dev/null || true
+              fi
+              # 'purge' is not supposed to leave package files behind,
+              # so remove the user along with other dirs.
+              userdel -r caddy || true
+              rm -rf /var/lib/caddy /var/log/caddy /etc/caddy
+          fi
+          EOF
+
+          cat <<EOF > deb-root/DEBIAN/prerm
+          #!/bin/sh
+          set -e
+          
+          if [ -d /run/systemd/system ] && [ "$1" = remove ]; then
+              deb-systemd-invoke stop caddy.service >/dev/null || true
+          fi
+          EOF
+          
+          (cd deb-root && find . -type f ! -path './DEBIAN/*' -exec md5sum {} + | sed 's|^\./||' > DEBIAN/md5sums)
+          chmod 644 deb-root/DEBIAN/md5sums
+
           dpkg-deb --build deb-root "caddy-acid_${{ env.DEB_VER }}~${{ env.RELEASE_DATE }}_amd64.deb"
           cp "caddy-acid_${{ env.DEB_VER }}~${{ env.RELEASE_DATE }}_amd64.deb" caddy-acid-latest.deb
 
