@@ -38,7 +38,10 @@ jobs:
             --output ./caddy-acid \
             --with github.com/caddy-dns/cloudflare \
             --with github.com/mholt/caddy-l4 \
-            --with github.com/pberkel/caddy-storage-redis
+            --with github.com/pberkel/caddy-storage-redis \
+            --with github.com/caddyserver/transform-encoder \
+            --with github.com/hslatman/caddy-crowdsec-bouncer/http@main \
+            --with github.com/hslatman/caddy-crowdsec-bouncer/layer4@main
 
       - name: Extract Caddy Version
         run: |
