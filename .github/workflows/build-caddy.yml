@@ -42,6 +42,7 @@ jobs:
             --with github.com/caddyserver/transform-encoder \
             --with github.com/hslatman/caddy-crowdsec-bouncer/http@main \
             --with github.com/hslatman/caddy-crowdsec-bouncer/layer4@main
+            --with github.com/caddyserver/forwardproxy@caddy2=github.com/klzgrad/forwardproxy@naive
 
       - name: Extract Caddy Version
         run: |
