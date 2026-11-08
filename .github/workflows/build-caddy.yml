@@ -43,6 +43,7 @@ jobs:
             --with github.com/hslatman/caddy-crowdsec-bouncer/http@main \
             --with github.com/hslatman/caddy-crowdsec-bouncer/layer4@main \
             --with github.com/evaneonf/caddy-anytls
+            --with github.com/0urr-acid/caddy-ts3-awg
 
       - name: Extract Caddy Version
         run: |
