@@ -214,3 +214,11 @@ jobs:
             --title "Latest Build ${{ env.RELEASE_DATE }} (${{ env.CADDY_VER }})" \
             --notes "Latest build ${{ env.RELEASE_DATE }} version ${{ env.CADDY_VER }}" \
             --target main
+
+      - name: Trigger workflow repository
+        env:
+          GH_TOKEN: ${{ secrets.TARGET_REPO_TOKEN }}
+        run: |
+          gh workflow run build.yml \
+            --repo 0urr-acid/acid-repo \
+            --ref main
