@@ -215,10 +215,11 @@ jobs:
             --notes "Latest build ${{ env.RELEASE_DATE }} version ${{ env.CADDY_VER }}" \
             --target main
 
-      - name: Trigger workflow repository
+      - name: Trigger workflow repository build
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         env:
           GH_TOKEN: ${{ secrets.TARGET_REPO_TOKEN }}
         run: |
-          gh workflow run build.yml \
+          gh workflow run sync.yml \
             --repo 0urr-acid/acid-repo \
             --ref main
